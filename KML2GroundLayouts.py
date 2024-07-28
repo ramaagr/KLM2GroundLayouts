@@ -1,7 +1,7 @@
-import argparse
+import tkinter as tk
+from tkinter import filedialog, messagebox
 import xml.etree.ElementTree as ET
-
-print("Running KLM2GroundLayouts V1.0.1 - Developed and Owned by Ramanuj Agarwal")
+import os
 
 def dms_from_dd(decimal_degrees_str):
     decimal_degrees = float(decimal_degrees_str)
@@ -34,17 +34,6 @@ def convert_dd_to_dms(lat, lon): # give in string formats
             lat = f"S0{str(lat_dat[0])[1:]}.{lat_dat[1]}.{lat_dat[2]}.{lat_dat[3]}"
         else:
             lat = f"S{str(lat_dat[0])[1:]}.{lat_dat[1]}.{lat_dat[2]}.{lat_dat[3]}"
-
-    if lon_dat[0] >= 0:
-        if lon_dat[0] < 100:
-            lon = f"E0{lon_dat[0]}.{lon_dat[1]}.{lon_dat[2]}.{lon_dat[3]}"
-        else:
-            lon = f"E{lon_dat[0]}.{lon_dat[1]}.{lon_dat[2]}.{lon_dat[3]}"
-    else:
-        if lon_dat[0] > -100:
-            lon = f"W0{str(lon_dat[0])[1:]}.{lon_dat[1]}.{lon_dat[2]}.{lon_dat[3]}"
-        else:
-            lon = f"W{str(lon_dat[0])[1:]}.{lon_dat[1]}.{lon_dat[2]}.{lon_dat[3]}"
     if len(lat) != 14:
         for i in range(14 - len(lat)):
             lat += '0'
@@ -58,10 +47,8 @@ def extract_airport_info(file_path):
 
     tree = ET.parse(file_path)
     root = tree.getroot()
-    # Define namespace for KML
     ns = {'kml': 'http://www.opengis.net/kml/2.2'}
 
-    # Find the SCT Entries folder
     sct_entries_folder = root.find('.//kml:Folder[kml:name="SCT Entries"]', ns)
     labels_folder = root.find('.//kml:Folder[kml:name="Labels"]', ns)
 
@@ -71,23 +58,16 @@ def extract_airport_info(file_path):
     if labels_folder is None:
         print("Labels not found")
 
-    # Iterate through ICAO named folders
     FIR_SCT_folder = sct_entries_folder.findall('.//kml:Folder[kml:name]', ns)
     for icao_folder in FIR_SCT_folder[1:]:
-        # Extract ICAO code
         icao = icao_folder.find('kml:name', ns).text
         if icao == "Groundlayout":
             continue
-        # Find the groundlayouts folder
-        # print(icao)
         groundlayouts_folder = icao_folder.find('.//kml:Folder[kml:name="Groundlayout"]', ns)
-        
-        # Find the folder with no name inside groundlayouts
         no_name_folder = groundlayouts_folder.find('.//kml:Folder', ns)
         if no_name_folder is None:
             print("empty no name")
             continue
-        # Iterate through paths
         for path in no_name_folder.findall('.//kml:Placemark', ns):
             try:
                 description = path.find('.//kml:description', ns).text
@@ -115,7 +95,6 @@ def extract_region_info(file_path):
         icao = icao_folder.find('kml:name', ns).text
         if icao == "GroundLayout":
             continue
-        #print(icao)
         groundlayouts_folder = icao_folder.find('.//kml:Folder[kml:name="GroundLayout"]', ns)
         if groundlayouts_folder is None:
             continue
@@ -155,16 +134,15 @@ def extract_label_info(file_path):
             try:
                 name = place.find('.//kml:name', ns).text
                 lon = place.find('.//kml:coordinates', ns).text
-                #lat = place.find('.//kml:latitude', ns).text
                 label_info.append((icao, name, lon))
             except AttributeError:
                 print("Found Freetext Attribute error for:", icao)
     return label_info
 
-def main(file_path, sct_src=None, ese_src=None):
-    airport_info = extract_airport_info(file_path)
-    region_info = extract_region_info(file_path)
-    labels_info = extract_label_info(file_path)
+def process_files(kml_path, sct_path, ese_path):
+    airport_info = extract_airport_info(kml_path)
+    region_info = extract_region_info(kml_path)
+    labels_info = extract_label_info(kml_path)
     
     GEOstr = str()
     REGstr = str()
@@ -187,7 +165,7 @@ def main(file_path, sct_src=None, ese_src=None):
                 lon = lon1
         GEOstr = write_str
         f.write(write_str)
-            
+        
     with open('output_reg.txt', 'w', encoding='utf-8') as f:
         write_str = '[REGIONS]\n'
         prev = ''
@@ -215,77 +193,47 @@ def main(file_path, sct_src=None, ese_src=None):
         FREstr = write_str
         f.write(write_str)
         
-    print("FINISHED :)")
+    messagebox.showinfo("Process Completed", "Files have been processed and outputs are generated.")
+
+def select_kml_file():
+    kml_file_path.set(filedialog.askopenfilename(filetypes=[("KML files", "*.kml")]))
     
-    if sct_src and ese_src:
-        new_sct = str()
-        new_ese = str()
-        print("PLS WAIT FOR A MINUTE :)")
-        with open(sct_src, 'r') as f:
-            a = f.read().split('\n')
-            skip = 0
-            for i in range(len(a)):
-                if a[i] == '':
-                    if skip == 1:
-                        continue
-                    else:
-                        new_sct += '\n'
-                        continue
-                elif a[i][0] == '[':
-                    skip = 0
-                    print("Found ", a[i], " in SCT")
-                    if a[i] == "[GEO]":
-                        new_sct += GEOstr + '\n'
-                        skip = 1
-                        print("OVERWRITING GEO")
-                        continue
-                    elif a[i] == "[regions]" or a[i] == "[REGIONS]":
-                        new_sct += REGstr + '\n'
-                        skip = 1
-                        print("OVERWRITING REGIONS")
-                        continue
-                    else:
-                        new_sct += a[i] + '\n'
-                        continue
-                if skip == 0:
-                    new_sct += a[i] + '\n'
-                    continue
-        with open(sct_src, 'w') as f:
-            f.write(new_sct)
-            print("succesfully written SCT")
-        with open(ese_src, 'r') as f:
-            a = f.read().split('\n')
-            skip = 0
-            for i in range(len(a)):
-                if a[i] == '':
-                    if skip == 1:
-                        continue
-                    else:
-                        new_ese += '\n'
-                        continue
-                elif a[i][0] == '[':
-                    skip = 0
-                    print("FOUND ", a[i], " in ESE")
-                    if a[i] == "[FREETEXT]":
-                        new_ese += FREstr + '\n'
-                        skip = 1
-                        print("OVERWRITING FREETEXT")
-                        continue
-                    else:
-                        new_ese += a[i] + '\n'
-                        continue
-                if skip == 0:
-                    new_ese += a[i] + '\n'
-                    continue
-        with open(ese_src, 'w') as f:
-            f.write(new_ese)
-        print("done")
+def select_sct_file():
+    sct_file_path.set(filedialog.askopenfilename(filetypes=[("SCT files", "*.sct")]))
+    
+def select_ese_file():
+    ese_file_path.set(filedialog.askopenfilename(filetypes=[("ESE files", "*.ese")]))
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Process KML files for Euroscope ground layouts.')
-    parser.add_argument('file_path', help='Path to the KML file')
-    parser.add_argument('--sct', help='Path to the SCT file to update', default=None)
-    parser.add_argument('--ese', help='Path to the ESE file to update', default=None)
-    args = parser.parse_args()
+def run_script():
+    kml_path = kml_file_path.get()
+    sct_path = sct_file_path.get()
+    ese_path = ese_file_path.get()
+    
+    if not kml_path or not sct_path or not ese_path:
+        messagebox.showwarning("Missing files", "Please select all required files.")
+        return
+    
+    process_files(kml_path, sct_path, ese_path)
 
-    main(args.file_path, args.sct, args.ese)
+app = tk.Tk()
+app.title("KML to SCT/REG/FREETEXT Converter")
+
+kml_file_path = tk.StringVar()
+sct_file_path = tk.StringVar()
+ese_file_path = tk.StringVar()
+
+tk.Label(app, text="KML File").grid(row=0, column=0, padx=10, pady=10)
+tk.Entry(app, textvariable=kml_file_path, width=50).grid(row=0, column=1, padx=10, pady=10)
+tk.Button(app, text="Browse", command=select_kml_file).grid(row=0, column=2, padx=10, pady=10)
+
+tk.Label(app, text="SCT File").grid(row=1, column=0, padx=10, pady=10)
+tk.Entry(app, textvariable=sct_file_path, width=50).grid(row=1, column=1, padx=10, pady=10)
+tk.Button(app, text="Browse", command=select_sct_file).grid(row=1, column=2, padx=10, pady=10)
+
+tk.Label(app, text="ESE File").grid(row=2, column=0, padx=10, pady=10)
+tk.Entry(app, textvariable=ese_file_path, width=50).grid(row=2, column=1, padx=10, pady=10)
+tk.Button(app, text="Browse", command=select_ese_file).grid(row=2, column=2, padx=10, pady=10)
+
+tk.Button(app, text="Run", command=run_script).grid(row=3, column=0, columnspan=3, pady=20)
+
+app.mainloop()
